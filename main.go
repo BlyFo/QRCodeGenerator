@@ -17,6 +17,14 @@ type QRCapacity = generator.QRCapacity
 type MaskPattern = generator.MaskPattern
 type ERCodeWords = generator.ERCodeWords
 
+const (
+	QR_CODE_STEP_ENCODE_MODE uint8 = iota
+	QR_CODE_STEP_CHARACTER_COUNT
+	QR_CODE_STEP_ENCODE_DATA
+	QR_CODE_STEP_ERROR_CORRECTION
+	QR_CODE_STEP_MASK
+)
+
 func getCapacityByEncodeMode(capacity QRCapacity, encodedMode generator.EncodingMode) int {
 	switch encodedMode {
 	case generator.EncodingMode_Byte:
@@ -29,10 +37,21 @@ func getCapacityByEncodeMode(capacity QRCapacity, encodedMode generator.Encoding
 	panic("Error not found Encoded mode")
 }
 
-func getQRInfoByData(stringToEncode string, encodedMode generator.EncodingMode) (QRCodeInfo, error) {
+func getEncodeMode(data string) generator.EncodingMode {
+	if utils.IsNumericString(data) {
+		return generator.EncodingMode_Numeric
+	}
+	if utils.IsAphaNumeric(data) {
+		return generator.EncodingMode_Alpha
+	}
+	return generator.EncodingMode_Byte
+}
+
+func getQRInfoByData(stringToEncode string) (QRCodeInfo, error) {
 
 	QRVersionInfo := generator.QRVersionInfo
 	QRAlignSquareCordinates := generator.QRAlignSquareCordinates
+	encodedMode := getEncodeMode(stringToEncode)
 
 	errorLevels := generator.GetErrorLevels()
 	errorLevelsSize := len(errorLevels)
@@ -203,8 +222,9 @@ func getEncodeMode_Binary(QRVersionInfo QRCodeInfo) []bool {
 
 func getCharacterCount_Binary(QRVersionInfo QRCodeInfo) []bool {
 	dataToEncode := QRVersionInfo.InfoToEncode
+	bitsForCharacterCount := generator.GetCharacterCountIndicator(QRVersionInfo.Version, QRVersionInfo.EncodingMode)
 	// this should use GetCharacterCountIndicator isntead of always asuming 8
-	return utils.ByteToBoolArray(uint8(len(dataToEncode)))
+	return utils.Byte16ToBoolArray(uint16(len(dataToEncode)))[16-bitsForCharacterCount:]
 }
 
 func getString_Encoded_Byte(QRVersionInfo QRCodeInfo) []bool {
@@ -239,7 +259,7 @@ func getString_Encoded_Numeric(QRVersionInfo QRCodeInfo) []bool {
 
 	for i := range len(numericString) / 3 {
 		numToEncode, _ := strconv.ParseUint(numericString[i*3:(i+1)*3], 10, 16)
-		encodedNum := utils.Byte16ToBoolArray(uint16(numToEncode))[:10]
+		encodedNum := utils.Byte16ToBoolArray(uint16(numToEncode))[6:]
 		encodedString = append(encodedString, encodedNum...)
 	}
 
@@ -248,9 +268,9 @@ func getString_Encoded_Numeric(QRVersionInfo QRCodeInfo) []bool {
 		encodedNum := utils.Byte16ToBoolArray(uint16(numToEncode))
 
 		if len(extraNumbers) == 1 {
-			encodedString = append(encodedString, encodedNum[:4]...)
+			encodedString = append(encodedString, encodedNum[12:]...)
 		} else if len(extraNumbers) == 2 {
-			encodedString = append(encodedString, encodedNum[:7]...)
+			encodedString = append(encodedString, encodedNum[9:]...)
 		}
 	}
 	return encodedString
@@ -269,12 +289,12 @@ func getString_Encoded_Alpha(QRVersionInfo QRCodeInfo) []bool {
 
 	for i := range len(dataToEncode) / 2 {
 		encodedNumber := (45 * alphaDic[string(dataToEncode[i*2])]) + alphaDic[string(dataToEncode[(i*2)+1])]
-		numberInBites := utils.Byte16ToBoolArray(encodedNumber)[:11]
+		numberInBites := utils.Byte16ToBoolArray(encodedNumber)[5:]
 		encodedData = append(encodedData, numberInBites...)
 	}
 
 	if len(oddCharacter) > 0 {
-		encodedCharacter := utils.Byte16ToBoolArray(alphaDic[oddCharacter])[:6]
+		encodedCharacter := utils.Byte16ToBoolArray(alphaDic[oddCharacter])[10:]
 		encodedData = append(encodedData, encodedCharacter...)
 	}
 
@@ -315,7 +335,7 @@ func addDataToQRCode(QRArray [][]uint8, QRVersionInfo QRCodeInfo, data []bool) [
 						// not re write used cells
 						continue
 					}
-					QRArrayCopy[j][i-k] = drawer.WHITE_COLOR // debug
+					QRArrayCopy[j][i-k] = drawer.RED_COLOR // debug
 					continue
 				}
 
@@ -403,6 +423,9 @@ func getCodeWords_Encoded(QRVersionInfo QRCodeInfo, data []bool) [][]bool {
 }
 
 func getStructuredFinalMessage(QRVersionInfo QRCodeInfo, dataCodeWords []bool, ErrorCorrectioncodeWords [][]bool) []bool {
+	if len(ErrorCorrectioncodeWords) == 0 {
+		return dataCodeWords
+	}
 	//TODO optimize the code by creating the data code words groups using only 1 for loop (it won't inpact performance)
 	//and find out why I'm using the +2 in the make below this
 	finalMessage := make([]bool, 0, len(dataCodeWords)+len(ErrorCorrectioncodeWords)+2) // porque rayos le puse +2 aca ?
@@ -585,22 +608,38 @@ func getBestMaskPattern(QRVersionInfo QRCodeInfo, QRTemplate [][]uint8, QRFinal 
 	return bestMask
 }
 
-func generateQR(QRVersionInfo QRCodeInfo) [][]uint8 {
+func generateQR(QRVersionInfo QRCodeInfo, QRCode_final_step uint8) [][]uint8 {
 
 	QRArrayBase := generateQRTemplate(QRVersionInfo)
 
-	var data []bool                                                        //aca tendria que hacer un make ya que se cuando espacio tiene el qrcode en base a las words
-	data = append(data, getEncodeMode_Binary(QRVersionInfo)...)            //ok
-	data = append(data, getCharacterCount_Binary(QRVersionInfo)...)        //ok
-	data = append(data, getString_Encoded(QRVersionInfo)...)               //ok
-	data = append(data, getPadingBits_Binary(QRVersionInfo, len(data))...) //ok
-	logger.Info("✓ Data encoded.")
+	var data []bool //aca tendria que hacer un make ya que se cuando espacio tiene el qrcode en base a las words
+	data = append(data, getEncodeMode_Binary(QRVersionInfo)...)
 
-	ERcodewords := getCodeWords_Encoded(QRVersionInfo, data)
-	logger.Info("✓ Created Error Correction Codewords.")
+	if QRCode_final_step >= QR_CODE_STEP_CHARACTER_COUNT {
+		data = append(data, getCharacterCount_Binary(QRVersionInfo)...)
+	}
+
+	if QRCode_final_step >= QR_CODE_STEP_ENCODE_DATA {
+		data = append(data, getString_Encoded(QRVersionInfo)...)
+		data = append(data, getPadingBits_Binary(QRVersionInfo, len(data))...)
+		logger.Info("✓ Data encoded.")
+	}
+
+	var ERcodewords [][]bool
+
+	if QRCode_final_step >= QR_CODE_STEP_ERROR_CORRECTION {
+		ERcodewords = getCodeWords_Encoded(QRVersionInfo, data)
+		logger.Info("✓ Created Error Correction Codewords.")
+	} else {
+		ERcodewords = [][]bool{}
+	}
 
 	encodedMessage := getStructuredFinalMessage(QRVersionInfo, data, ERcodewords)
 	QRArrayWithData := addDataToQRCode(QRArrayBase, QRVersionInfo, encodedMessage)
+
+	if QRCode_final_step < QR_CODE_STEP_MASK {
+		return QRArrayWithData
+	}
 
 	logger.Info("✓ Added code words to QR code.")
 
@@ -611,37 +650,23 @@ func generateQR(QRVersionInfo QRCodeInfo) [][]uint8 {
 	return QRArrayWithMask
 }
 
-func getEncodeMode(data string) generator.EncodingMode {
-	if utils.IsNumericString(data) {
-		return generator.EncodingMode_Numeric
-	}
-	if utils.IsAphaNumeric(data) {
-		return generator.EncodingMode_Alpha
-	}
-	return generator.EncodingMode_Byte
-}
-
 func main() {
-	//TODO make this support (and maybe detect) other encode modes. Right now it only works for ASCI encoded text and numbers (Byte mode)
-	//the other encoded mode are implemented but are not working right now
-	//also maybe add the option to chose the level of error correction
+	//TODO add the option to chose the level of error correction
 
-	stringToEncode := "Hello Word"
+	stringToEncode := "123456"
 
 	imageName := "QRCode"
 	saveLocation := "C:\\Users\\marce\\Documents\\Git\\QRCodeGenerator\\" + imageName + ".png"
 
 	logger.Info("Generating QR code for data: ", stringToEncode)
-	encodedMode := getEncodeMode(stringToEncode)
-
-	QRversion, err := getQRInfoByData(stringToEncode, encodedMode)
+	QRversion, err := getQRInfoByData(stringToEncode)
 	if err != nil {
 		logger.Error("Error obtaining info for QR Code, Error: ", err)
 		return
 	}
 	logger.Info("Using Version: ", QRversion.Version, ", Size: ", QRversion.Size, ", Error Correction: ", QRversion.ErrorLevel, ", Encoding Mode: ", QRversion.EncodingMode)
 
-	QRArray := generateQR(QRversion)
+	QRArray := generateQR(QRversion, QR_CODE_STEP_MASK)
 	logger.Info("Finished encoding data")
 
 	logger.Info("Generating Img")

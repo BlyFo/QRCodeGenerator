@@ -61,7 +61,7 @@ type ERCodeWords struct {
 	DataCodeWordsPerGroup2 int
 }
 
-const MAX_SUPPORTED_VERSION = 7
+const MAX_SUPPORTED_VERSION = 6 // I need to add the  Version Information Strings for version 7 and up
 
 var QRVersionInfo = map[int]map[ErrorLevel]QRCapacity{
 	1: {
