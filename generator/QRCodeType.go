@@ -61,7 +61,7 @@ type ERCodeWords struct {
 	DataCodeWordsPerGroup2 int
 }
 
-const MAX_SUPPORTED_VERSION = 6 // I need to add the  Version Information Strings for version 7 and up
+const MAX_SUPPORTED_VERSION = 7
 
 var QRVersionInfo = map[int]map[ErrorLevel]QRCapacity{
 	1: {
@@ -264,6 +264,34 @@ var ErrorCorrectionCodeWords = map[int]map[ErrorLevel]ERCodeWords{
 		ErrorLevel_Q: ERCodeWords{Total: 88, ECCWPerBlock: 18, BlocksGroup1: 2, DataCodeWordsPerGroup1: 14, BlocksGroup2: 4, DataCodeWordsPerGroup2: 15},
 		ErrorLevel_H: ERCodeWords{Total: 66, ECCWPerBlock: 26, BlocksGroup1: 2, DataCodeWordsPerGroup1: 13, BlocksGroup2: 1, DataCodeWordsPerGroup2: 14},
 	},
+}
+
+var ReminderBits = map[int]int{
+	1:  0,
+	2:  7,
+	3:  7,
+	4:  7,
+	5:  7,
+	6:  7,
+	7:  0,
+	8:  0,
+	9:  0,
+	10: 0,
+	11: 0,
+	12: 0,
+	13: 0,
+}
+
+var VersionInformationString = map[int][]bool{
+	0: {},
+	1: {},
+	2: {},
+	3: {},
+	4: {},
+	5: {},
+	6: {},
+	7: {false, false, false, true, true, true, true, true, false, false, true, false, false, true, false, true, false, false},
+	8: {false, false, true, false, false, false, false, true, false, true, true, false, true, true, true, true, false, false},
 }
 
 func GetErrorLevels() []ErrorLevel {

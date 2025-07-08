@@ -22,6 +22,7 @@ const (
 	QR_CODE_STEP_CHARACTER_COUNT
 	QR_CODE_STEP_ENCODE_DATA
 	QR_CODE_STEP_ERROR_CORRECTION
+	QR_CODE_STEP_REMINDER_BITS
 	QR_CODE_STEP_MASK
 )
 
@@ -200,6 +201,28 @@ func writeOrder(value int, index int) int {
 	return value + 1
 }
 
+func addVersionInformation(QRArray [][]uint8, version int, size int) {
+	versionString := generator.VersionInformationString[version]
+	index := 0
+
+	if len(versionString) == 0 {
+		return
+	}
+
+	for i := range 6 {
+		for j := range 3 {
+			if versionString[index] {
+				QRArray[5-i][size-9-j] = drawer.BLACK_COLOR
+				QRArray[size-9-i][5-j] = drawer.BLACK_COLOR
+			} else {
+				QRArray[5-i][size-9-j] = drawer.WHITE_COLOR
+				QRArray[size-9-i][5-j] = drawer.WHITE_COLOR
+			}
+			index++
+		}
+	}
+}
+
 func generateQRTemplate(QRVersionInfo QRCodeInfo) [][]uint8 {
 	QRArray := make([][]uint8, QRVersionInfo.Size)
 	for i := 0; i < QRVersionInfo.Size; i++ {
@@ -210,6 +233,7 @@ func generateQRTemplate(QRVersionInfo QRCodeInfo) [][]uint8 {
 	addAlignSquares(QRArray, QRVersionInfo.AlignSquareCordenates)
 	addTiming(QRArray)
 	addFormatVersion(QRArray, QRVersionInfo.ErrorLevel, QRVersionInfo.MaskPatern, QRVersionInfo.Size)
+	addVersionInformation(QRArray, QRVersionInfo.Version, QRVersionInfo.Size)
 	//add black square
 	QRArray[QRVersionInfo.Size-8][8] = drawer.BLACK_COLOR
 
@@ -223,7 +247,6 @@ func getEncodeMode_Binary(QRVersionInfo QRCodeInfo) []bool {
 func getCharacterCount_Binary(QRVersionInfo QRCodeInfo) []bool {
 	dataToEncode := QRVersionInfo.InfoToEncode
 	bitsForCharacterCount := generator.GetCharacterCountIndicator(QRVersionInfo.Version, QRVersionInfo.EncodingMode)
-	// this should use GetCharacterCountIndicator isntead of always asuming 8
 	return utils.Byte16ToBoolArray(uint16(len(dataToEncode)))[16-bitsForCharacterCount:]
 }
 
@@ -359,6 +382,9 @@ func addDataToQRCode(QRArray [][]uint8, QRVersionInfo QRCodeInfo, data []bool) [
 			j = writeOrder(j, row)
 		}
 		row++
+	}
+	if index < len(data) {
+		logger.Info("X Error.")
 	}
 	return QRArrayCopy
 }
@@ -608,11 +634,18 @@ func getBestMaskPattern(QRVersionInfo QRCodeInfo, QRTemplate [][]uint8, QRFinal 
 	return bestMask
 }
 
+func getReminderBits(QRVersionInfo QRCodeInfo) []bool {
+	reminderBitsCount := generator.ReminderBits[QRVersionInfo.Version]
+	return make([]bool, reminderBitsCount)
+}
+
 func generateQR(QRVersionInfo QRCodeInfo, QRCode_final_step uint8) [][]uint8 {
 
 	QRArrayBase := generateQRTemplate(QRVersionInfo)
+	totalAmountOfBits := QRVersionInfo.CodeWords.Total * 8                                                                                        //codewords
+	totalAmountOfBits += (QRVersionInfo.CodeWords.BlocksGroup1 + QRVersionInfo.CodeWords.BlocksGroup1) * QRVersionInfo.CodeWords.ECCWPerBlock * 8 // error correction
+	data := make([]bool, 0, totalAmountOfBits)
 
-	var data []bool //aca tendria que hacer un make ya que se cuando espacio tiene el qrcode en base a las words
 	data = append(data, getEncodeMode_Binary(QRVersionInfo)...)
 
 	if QRCode_final_step >= QR_CODE_STEP_CHARACTER_COUNT {
@@ -635,6 +668,11 @@ func generateQR(QRVersionInfo QRCodeInfo, QRCode_final_step uint8) [][]uint8 {
 	}
 
 	encodedMessage := getStructuredFinalMessage(QRVersionInfo, data, ERcodewords)
+
+	if QRCode_final_step >= QR_CODE_STEP_REMINDER_BITS {
+		encodedMessage = append(encodedMessage, getReminderBits(QRVersionInfo)...)
+		logger.Info("✓ Added Reminder bits.")
+	}
 	QRArrayWithData := addDataToQRCode(QRArrayBase, QRVersionInfo, encodedMessage)
 
 	if QRCode_final_step < QR_CODE_STEP_MASK {
@@ -653,7 +691,7 @@ func generateQR(QRVersionInfo QRCodeInfo, QRCode_final_step uint8) [][]uint8 {
 func main() {
 	//TODO add the option to chose the level of error correction
 
-	stringToEncode := "123456"
+	stringToEncode := "esto aun funciona?"
 
 	imageName := "QRCode"
 	saveLocation := "C:\\Users\\marce\\Documents\\Git\\QRCodeGenerator\\" + imageName + ".png"
